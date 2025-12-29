@@ -1,0 +1,58 @@
+---
+- name: Generate switch summary report
+  hosts: all_devices
+  gather_facts: no
+  vars:
+    reports_dir: "{{ playbook_dir }}/../reports"
+    summary_dir: "{{ reports_dir }}/switch_summary"
+  
+  tasks:
+    - name: Create summary directory if it doesn't exist
+      ansible.builtin.file:
+        path: "{{ summary_dir }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
+    
+    - name: Get interface status from device
+      arista.eos.eos_command:
+        commands:
+          - show interfaces status
+      register: interface_status
+    
+    - name: Count interfaces by state
+      ansible.builtin.set_fact:
+        switch_summary:
+          hostname: "{{ inventory_hostname }}"
+          total: "{{ interface_status.stdout_lines[0] | select('match', '(?i).*^Et|^Ma|^Lo.*') | list | length }}"
+          up: "{{ interface_status.stdout_lines[0] | select('match', '(?i).*(connected|up).*') | list | length }}"
+          down: "{{ interface_status.stdout_lines[0] | select('match', '(?i).*(down|notconnect|disabled).*') | list | length }}"
+    
+    - name: Get current timestamp
+      ansible.builtin.shell: date
+      register: timestamp_result
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+    
+    - name: Save switch summary to file
+      ansible.builtin.copy:
+        content: |
+          Switch Summary Report
+          ====================
+          
+          Hostname: {{ switch_summary.hostname }}
+          Total Interfaces: {{ switch_summary.total }}
+          Interfaces UP: {{ switch_summary.up }}
+          Interfaces DOWN: {{ switch_summary.down }}
+          
+          Generated: {{ timestamp_result.stdout | default('N/A') }}
+        dest: "{{ summary_dir }}/{{ inventory_hostname }}_summary.txt"
+        mode: '0644'
+      delegate_to: localhost
+    
+    - name: Display switch summary
+      ansible.builtin.debug:
+        msg: "{{ switch_summary.hostname }}: Total={{ switch_summary.total }}, UP={{ switch_summary.up }}, DOWN={{ switch_summary.down }}"
+
